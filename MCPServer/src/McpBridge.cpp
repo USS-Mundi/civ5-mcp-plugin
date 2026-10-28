@@ -776,6 +776,7 @@ bool McpBridge::Impl::RunJob(McpJob* pJob)
 {
 	if(pJob->tool == MCP_JOB_GAME_REFERENCE)
 	{
+		McpCrashSetContext(MCP_JOB_GAME_REFERENCE);
 		try
 		{
 			pJob->result = picojson::value(McpGameReference());
@@ -785,6 +786,12 @@ bool McpBridge::Impl::RunJob(McpJob* pJob)
 			McpDiagLog(std::string("the game reference threw an exception: ") + e.what());
 			pJob->error = "the game reference could not be built";
 		}
+		catch(...)
+		{
+			McpDiagLog("the game reference threw an exception");
+			pJob->error = "the game reference could not be built";
+		}
+		McpCrashSetContext("");
 		return false;
 	}
 

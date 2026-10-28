@@ -41,8 +41,11 @@ namespace
 		{"tourism", "t"}, {"golden age points", "ga"}};
 
 	const char* const YIELD_CODES[][2] = {
-		{"Food", "f"}, {"Production", "p"}, {"Gold", "g"}, {"Science", "s"}, {"Culture", "c"}, {"Faith", "fa"},
-		{"Golden Age Points", "ga"}, {"Tourism", "t"}};
+		{"YIELD_FOOD", "f"}, {"YIELD_PRODUCTION", "p"}, {"YIELD_GOLD", "g"}, {"YIELD_SCIENCE", "s"}, {"YIELD_CULTURE", "c"},
+		{"YIELD_FAITH", "fa"}, {"YIELD_GOLDEN_AGE_POINTS", "ga"}, {"YIELD_TOURISM", "t"}};
+
+	// The column that holds the amount in a row with a YieldType.
+	const char* const YIELD_AMOUNTS[] = {"Yield", "YieldTimes100", "YieldChange", "YieldModifier", "YieldMod", "Modifier"};
 
 	// Columns written in short form; the legend lists the ones a reference uses.
 	const char* const SHORT[][2] = {
@@ -63,17 +66,20 @@ namespace
 	const char* const SKIP_SUB[] = {
 		"Art", "Icon", "Audio", "Sound", "Movie", "Portrait", "Splash", "Flavor", "Quote", "Civilopedia", "Strategy", "Pedia",
 		"Tooltip", "Grid", "Advisor", "Ambience", "Color", "Image", "Atlas", "Button", "Latitude", "RandApp", "Appearance",
-		"AdvancedStart", "Goody", "ConquestProb", "MinAreaSize", "EffectType"};
+		"AdvancedStart", "Goody", "ConquestProb", "MinAreaSize", "EffectType", "TilesPer", "StartingLocation", "Probability", "HotKey",
+		"Priority", "EntityEvent"};
 	const char* const SKIP_EXACT[] = {
 		"Title", "ID", "Type", "Description", "Help", "ShortDescription", "Adjective", "Class", "BuildingClass", "DisplayPosition",
-		"XPValueAttack", "XPValueDefense", "DefaultUnitAI", "MoveRate", "HurryCostModifier", "FreeStartEra", "Player",
+		"XPValueAttack", "XPValueDefense", "DefaultUnitAI", "MoveRate", "FreeStartEra", "Player",
 		"AmountMinor", "AmountMajor", "Area", "Hills", "Flatlands", "NoRiverSide", "OnlyMinorCivs", "Unique", "GroupSize",
 		"GroupRange", "CombatLimit", "RangedCombatLimit", "MilitarySupport", "MilitaryProduction", "Pillage", "Conscription",
-		"RequiresFaithPurchaseEnabled", "Sellable", "UnlockedByBelief", "ResourceUsage", "Found", "SeeFrom", "SeeThrough",
-		"InfluenceCost", "ShowInPedia", "PrereqTech", "Mechanized", "NoMaintenance", "IconString", "TechCityTrade",
+		"RequiresFaithPurchaseEnabled", "Sellable", "UnlockedByBelief", "ResourceUsage", "SeeFrom", "SeeThrough",
+		"InfluenceCost", "ShowInPedia", "PrereqTech", "Mechanized", "IconString", "TechCityTrade",
 		"CivilianAttackPriority", "MaxStartEra", "PlacementOrder", "GroupRand", "Normalize", "WorkerSpeed",
-		"ExtraMaintenanceCost", "OccurrenceFrequency", "MinLandPercent", "Visible", "GreatPeopleTitle", "DontShowYields"};
-	const char* const CHILD_SKIP[] = {"Flavor", "AI", "Art", "Audio", "UniqueNames", "Sound", "Booleans", "QuantityTypes"};
+		"ExtraMaintenanceCost", "OccurrenceFrequency", "MinLandPercent", "Visible", "GreatPeopleTitle", "DontShowYields",
+		"ThemingBonusHelp", "GraphicalOnly", "NoRegional", "Growth", "Recommendation", "CtrlDown", "AltDown", "ShiftDown",
+		"CtrlDownAlt", "AltDownAlt", "ShiftDownAlt"};
+	const char* const CHILD_SKIP[] = {"Flavor", "AI", "Art", "Audio", "UniqueNames", "Sound", "Booleans", "Gameplay2DScripts"};
 	const char* const BELIEF_KINDS[] = {"Pantheon", "Founder", "Follower", "Enhancer", "Reformation"};
 
 	const std::string NONE_KEY = "\x01None";
@@ -131,7 +137,7 @@ namespace
 		unsigned char e = i + 2 < s.size() ? (unsigned char)s[i + 2] : 0;
 		if(c == 0xc2) return (d == 0x85 || d == 0xa0) ? 2 : 0;
 		if(c == 0xe1) return (d == 0x9a && e == 0x80) ? 3 : 0;
-		if(c == 0xe2) return ((d == 0x80 && (e <= 0x8a || e == 0xa8 || e == 0xa9 || e == 0xaf)) || (d == 0x81 && e == 0x9f)) ? 3 : 0;
+		if(c == 0xe2) return ((d == 0x80 && ((e >= 0x80 && e <= 0x8a) || e == 0xa8 || e == 0xa9 || e == 0xaf)) || (d == 0x81 && e == 0x9f)) ? 3 : 0;
 		if(c == 0xe3) return (d == 0x80 && e == 0x80) ? 3 : 0;
 		return 0;
 	}
@@ -230,6 +236,7 @@ namespace
 	std::string PyG(double d)
 	{
 		if(d == 0) return "0";
+		if(d != d || d > DBL_MAX || d < -DBL_MAX) return PyRepr(d);
 		char buf[512];
 		sprintf(buf, "%.5e", d);
 		const char* pe = strchr(buf, 'e');
@@ -349,6 +356,28 @@ namespace
 		return false;
 	}
 
+	// Whether one of the next three words of s, from i, starts like a word of word does.
+	bool NamedAhead(const std::string& s, size_t i, const std::string& word)
+	{
+		Strings stems;
+		for(size_t b = 0, e; b < word.size(); b = e + 1)
+		{
+			e = word.find(' ', b);
+			if(e == std::string::npos) e = word.size();
+			stems.push_back(word.substr(b, std::min(e - b, (size_t)4)));
+		}
+		for(int w = 0; w < 3 && i < s.size(); ++w)
+		{
+			size_t end = s.find_first_of(" ;,.", i);
+			if(end == std::string::npos) end = s.size();
+			for(size_t k = 0; k < stems.size(); ++k)
+				if(!stems[k].empty() && Lower(s.substr(i, stems[k].size())) == stems[k]) return true;
+			i = s.find_first_not_of(" ;,.", end);
+			if(i == std::string::npos) break;
+		}
+		return false;
+	}
+
 	// The game's text as plain words, with yields in short codes: icons named, markup and
 	// line breaks dropped, "+2 [ICON_GOLD] Gold" written 2g.
 	std::string CleanText(const std::string& raw)
@@ -368,12 +397,13 @@ namespace
 			size_t end = j + 1;
 			for(size_t n; (n = SpaceAt(raw, end)) != 0;) end += n;
 			t += raw.substr(from, pos - from);
+			// A yield or resource icon becomes its word, unless the text names it within the next
+			// few words; any other icon (a building's, a unit's) is dropped, since the text names it.
 			std::string word;
 			for(size_t i = 0; i < MCP_REF_COUNT(ICONS); ++i)
 				if(icon == ICONS[i][0]) word = ICONS[i][1];
-			if(word.empty()) word = Replace(Replace(Lower(icon), "res_", ""), "_", " ");
-			std::string first = word.substr(0, word.find(' '));
-			if(Lower(raw.substr(end, first.size())) != first) t += word + " ";
+			if(word.empty() && icon.compare(0, 4, "RES_") == 0) word = Replace(Lower(icon.substr(4)), "_", " ");
+			if(!word.empty() && !NamedAhead(raw, end, word)) t += word + " ";
 			from = pos = end;
 		}
 		t += raw.substr(from);
@@ -440,7 +470,7 @@ namespace
 		std::string Build();
 
 	private:
-		enum Kind { PLAIN, TECHS, BUILDINGS, UNITS, IMPROVEMENTS };
+		enum Kind { PLAIN, TECHS, BUILDINGS, UNITS, BUILDS, TERRAIN, FEATURES, NATURAL_WONDERS };
 		typedef std::map<std::string, StringSet> Owners;
 		struct Defaults
 		{
@@ -460,7 +490,8 @@ namespace
 		std::map<std::string, Strings> m_unlocks, m_needs;
 		StringMap m_eraOf;
 		std::string m_lastEra;
-		StringSet m_wonderClasses;
+		StringMap m_wonderClasses; // class, what kind of wonder
+		StringSet m_classDefaults, m_absent, m_referenced, m_gameTraits;
 
 		Rows Select(const std::string& sql)
 		{
@@ -499,7 +530,8 @@ namespace
 		std::string StripName(std::string t, const std::string& name)
 		{
 			t = Strip(t);
-			if(!name.empty() && t.size() >= name.size() && Lower(t.substr(0, name.size())) == Lower(name))
+			if(!name.empty() && t.size() >= name.size() && Lower(t.substr(0, name.size())) == Lower(name)
+				&& (t.size() == name.size() || !isalnum((unsigned char)t[name.size()])))
 				t = StripChars(t.substr(name.size()), " :.-;", true, false);
 			return t;
 		}
@@ -567,60 +599,75 @@ namespace
 			}
 		}
 
+		std::string YieldCode(const std::string& type) const
+		{
+			for(size_t y = 0; y < MCP_REF_COUNT(YIELD_CODES); ++y)
+				if(type == YIELD_CODES[y][0]) return YIELD_CODES[y][1];
+			return Name(type);
+		}
+
 		// A row's fields that differ from their defaults: short code and amount (c120),
-		// short code and name (cls:Melee), a boolean's name, a yield as 2g. compact writes
-		// the values alone, for rows of a related table.
+		// short code and name (cls:Melee), a flag's name, a yield as 2g. compact writes the
+		// values alone, for rows of a related table, and names the numbers when there are
+		// several. A row whose yield comes to nothing comes back empty.
 		Strings Cols(const McpRefRow& r, const StringSet& skip, const std::string& table, bool compact)
 		{
 			static const Defaults none;
 			const Defaults& d = table.empty() ? none : DefaultsOf(table);
+			const McpRefValue* yieldType = Col(r, "YieldType");
+			const char* amountCol = NULL;
+			for(size_t a = 0; yieldType && a < MCP_REF_COUNT(YIELD_AMOUNTS) && !amountCol; ++a)
+				if(Col(r, YIELD_AMOUNTS[a])) amountCol = YIELD_AMOUNTS[a];
 			Strings out;
-			std::string yieldCode, amount;
-			bool bYield = false, bAmount = false;
+			std::vector<size_t> numberAt;
+			std::vector<std::string> numberCol;
+			std::string amount;
 			for(size_t i = 0; i < r.size(); ++i)
 			{
 				const std::string& c = r[i].first;
 				const McpRefValue& v = r[i].second;
-				if(SkipCol(c) || skip.count(c)) continue;
+				if(SkipCol(c) || skip.count(c) || c == "YieldType") continue;
+				if(amountCol && c == amountCol)
+				{
+					if(IsNumber(v) && Number(&v) != 0) amount = PyG(c == "YieldTimes100" ? Number(&v) / 100.0 : Number(&v));
+					continue;
+				}
 				StringMap::const_iterator itDefault = d.values.find(c);
 				if(itDefault != d.values.end() && PyStr(v) == itDefault->second) continue;
-				if(d.booleans.count(c))
+				bool bFlagText = v.kind == McpRefValue::TEXT && v.s == "true";
+				if(d.booleans.count(c) || bFlagText)
 				{
-					bool bOn = (IsNumber(v) && Number(&v) == 1) || (v.kind == McpRefValue::TEXT && (v.s == "true" || v.s == "1"));
+					bool bOn = bFlagText || (IsNumber(v) && Number(&v) == 1) || (v.kind == McpRefValue::TEXT && v.s == "1");
 					bool bDefaultOff = itDefault == d.values.end() || itDefault->second == "false" || itDefault->second == "0";
 					if(bOn && bDefaultOff) out.push_back(Abbr(c));
 					continue;
 				}
-				if(c == "YieldType")
-				{
-					bYield = v.kind != McpRefValue::NUL;
-					if(bYield)
-					{
-						yieldCode = Name(PyStr(v));
-						for(size_t y = 0; y < MCP_REF_COUNT(YIELD_CODES); ++y)
-							if(yieldCode == YIELD_CODES[y][0]) { yieldCode = YIELD_CODES[y][1]; break; }
-					}
-					continue;
-				}
-				if((c == "Yield" || c == "YieldTimes100") && IsNumber(v))
-				{
-					amount = PyG(c == "YieldTimes100" ? Number(&v) / 100.0 : Number(&v));
-					bAmount = true;
-					continue;
-				}
 				std::string s;
 				if(!Val(v, s)) continue;
-				if(compact) out.push_back(s);
+				if(compact && IsNumber(v))
+				{
+					numberAt.push_back(out.size());
+					numberCol.push_back(c);
+					out.push_back(s);
+				}
+				else if(compact) out.push_back(s);
 				else if(IsNumber(v)) out.push_back(Abbr(c) + s);
 				else out.push_back(Abbr(c) + ":" + Replace(s, " Units", ""));
 			}
-			if(bYield && bAmount) out.push_back(amount + yieldCode);
+			if(numberAt.size() > 1)
+				for(size_t n = 0; n < numberAt.size(); ++n) out[numberAt[n]] = Abbr(numberCol[n]) + out[numberAt[n]];
+			if(yieldType && yieldType->kind != McpRefValue::NUL)
+			{
+				if(!amountCol) out.push_back(Name(PyStr(*yieldType)));
+				else if(amount.empty()) return Strings();
+				else out.push_back(amount + YieldCode(PyStr(*yieldType)));
+			}
 			return out;
 		}
 
 		// The rows of every table named prefix..., by the object they belong to, written
 		// TableName(values, values) or, for plain yields, 2g1f.
-		std::map<std::string, Strings> Children(const std::string& prefix, const std::string& key)
+		std::map<std::string, Strings> Children(const std::string& prefix, const std::string& key, const StringSet& skipTables = StringSet())
 		{
 			typedef std::vector<std::pair<std::string, std::string> > Items;
 			std::map<std::string, Items> by;
@@ -632,15 +679,17 @@ namespace
 				if(!StartsWith(table, prefix.c_str())) continue;
 				bool bSkip = false;
 				for(size_t i = 0; i < MCP_REF_COUNT(CHILD_SKIP) && !bSkip; ++i) bSkip = Contains(table, CHILD_SKIP[i]);
-				if(bSkip) continue;
+				if(bSkip || skipTables.count(table)) continue;
 				Rows rows;
 				if(!m_src.Query("select * from " + table, rows) || rows.empty() || !Col(rows[0], key.c_str())) continue;
 				std::string name = RemoveChanges(table.substr(prefix.size()));
+				if(!name.empty() && name[0] == '_') name.erase(0, 1);
 				if(name.empty() || name == "Yields" || name == "Yield") name = "yield";
 				for(size_t i = 0; i < rows.size(); ++i)
 				{
 					const McpRefValue* civ = Col(rows[i], "CivilizationType");
 					if(Truthy(civ) && !m_civSet.count(PyStr(*civ))) continue;
+					if(MentionsAbsent(rows[i])) continue;
 					Strings body = Cols(rows[i], skip, table, true);
 					if(!body.empty()) by[Key(Col(rows[i], key.c_str()))].push_back(std::make_pair(name, Join(body, " ")));
 				}
@@ -654,7 +703,8 @@ namespace
 					size_t g = 0;
 					while(g < groups.size() && groups[g].first != it->second[i].first) ++g;
 					if(g == groups.size()) groups.push_back(std::make_pair(it->second[i].first, Strings()));
-					groups[g].second.push_back(it->second[i].second);
+					Strings& bodies = groups[g].second;
+					if(std::find(bodies.begin(), bodies.end(), it->second[i].second) == bodies.end()) bodies.push_back(it->second[i].second);
 				}
 				Strings& lines = merged[it->first];
 				for(size_t g = 0; g < groups.size(); ++g)
@@ -675,11 +725,12 @@ namespace
 			return owners;
 		}
 
-		// false for a civilization's unique item when that civilization is not in the game
+		// Whether a unit or building can exist in this game: it is its class's default, or the
+		// unique of a civilization in the game. Mods leave other rows behind that nothing uses.
 		bool Available(const Owners& owners, const std::string& type) const
 		{
 			Owners::const_iterator it = owners.find(type);
-			if(it == owners.end()) return true;
+			if(it == owners.end()) return m_classDefaults.count(type) > 0;
 			for(StringSet::const_iterator c = it->second.begin(); c != it->second.end(); ++c)
 				if(m_civSet.count(*c)) return true;
 			return false;
@@ -695,17 +746,36 @@ namespace
 			return " [unique: " + Join(civs, ", ") + "]";
 		}
 
+		bool MentionsAbsent(const McpRefRow& r) const
+		{
+			for(size_t c = 0; c < r.size(); ++c)
+				if(r[c].second.kind == McpRefValue::TEXT && m_absent.count(r[c].second.s)) return true;
+			return false;
+		}
+
+		bool Referenced(const std::string& type) const { return !type.empty() && m_referenced.count(type) > 0; }
+
+		// A building or unit with no cost is listed when the game hands it out: the palace,
+		// the settler, or one another row grants.
 		bool Include(Kind kind, const McpRefRow& r) const
 		{
 			std::string type = ColText(r, "Type");
+			if(m_absent.count(type)) return false;
+			const McpRefValue* civ = Col(r, "CivilizationType");
+			if(Truthy(civ) && !m_civSet.count(PyStr(*civ))) return false;
+			bool bCost = Number(Col(r, "Cost")) > 0 || Number(Col(r, "FaithCost")) > 0;
 			switch(kind)
 			{
 			case BUILDINGS:
-				return Available(m_uniqueBuildings, type) && (Number(Col(r, "Cost")) > 0 || Number(Col(r, "FaithCost")) > 0);
+				return bCost || Truthy(Col(r, "Capital")) || Referenced(type) || Referenced(ColText(r, "BuildingClass"));
 			case UNITS:
-				return Available(m_uniqueUnits, type) && (Number(Col(r, "Cost")) > 0 || Number(Col(r, "FaithCost")) > 0 || Truthy(Col(r, "Special")));
-			case IMPROVEMENTS:
-				return !Truthy(Col(r, "CivilizationType")) || m_civSet.count(ColText(r, "CivilizationType")) > 0;
+				return bCost || Truthy(Col(r, "Special")) || Truthy(Col(r, "Found")) || Referenced(type) || Referenced(ColText(r, "Class"));
+			case TERRAIN:
+				return !Truthy(Col(r, "GraphicalOnly"));
+			case FEATURES:
+				return !Truthy(Col(r, "NaturalWonder"));
+			case NATURAL_WONDERS:
+				return Truthy(Col(r, "NaturalWonder"));
 			default:
 				return true;
 			}
@@ -717,8 +787,9 @@ namespace
 		{
 			switch(kind)
 			{
-			case TECHS: return false;
-			case BUILDINGS: return m_wonderClasses.count(ColText(r, "BuildingClass")) || m_uniqueBuildings.count(ColText(r, "Type"));
+			case TECHS:
+			case BUILDS: return false;
+			case BUILDINGS: return m_wonderClasses.count(ColText(r, "BuildingClass")) || m_uniqueBuildings.count(ColText(r, "Type")) || Number(Col(r, "Cost")) <= 0;
 			case UNITS: return m_uniqueUnits.count(ColText(r, "Type")) || Truthy(Col(r, "Special")) || !Truthy(Col(r, "Combat"));
 			default: return true;
 			}
@@ -727,7 +798,11 @@ namespace
 		// Written after the name; for technologies, an era heading goes out first when the era changes.
 		std::string Note(Kind kind, const McpRefRow& r)
 		{
-			if(kind == BUILDINGS) return UniqueNote(m_uniqueBuildings, ColText(r, "Type"));
+			if(kind == BUILDINGS)
+			{
+				StringMap::const_iterator it = m_wonderClasses.find(ColText(r, "BuildingClass"));
+				return UniqueNote(m_uniqueBuildings, ColText(r, "Type")) + (it != m_wonderClasses.end() ? " [" + it->second + "]" : "");
+			}
 			if(kind == UNITS) return UniqueNote(m_uniqueUnits, ColText(r, "Type"));
 			if(kind == TECHS)
 			{
@@ -800,18 +875,92 @@ namespace
 				std::string help = (Col(r, "Help") && HelpWanted(kind, r)) ? Text(Col(r, "Help")) : "";
 				std::string name = Name(ColText(r, "Type"));
 				help = StripName(help, name);
-				if(body.empty() && help.empty()) continue;
+				if(body.empty() && help.empty())
+				{
+					if(kind != TERRAIN) continue;
+					body.push_back("no yield");
+				}
 				std::string note = Note(kind, r);
 				m_out.push_back(name + note + ": " + Join(body, "; ") + (help.empty() ? "" : " | " + help));
 			}
 		}
 
+		void FindAbsent();
+		void FindReferenced();
 		void Civilizations();
 		void TechnologyLinks();
 		void Policies();
 		void Beliefs();
 		void Promotions();
 	};
+
+	// What cannot appear in this game: units and buildings no civilization here can have, and
+	// the improvements, builds and resources of civilizations not playing.
+	void Builder::FindAbsent()
+	{
+		const char* const CLASSES[][2] = {{"BuildingClasses", "DefaultBuilding"}, {"UnitClasses", "DefaultUnit"}};
+		for(size_t t = 0; t < MCP_REF_COUNT(CLASSES); ++t)
+		{
+			Rows rows = Select(std::string("select ") + CLASSES[t][1] + " as d from " + CLASSES[t][0]);
+			for(size_t i = 0; i < rows.size(); ++i) m_classDefaults.insert(ColText(rows[i], "d"));
+		}
+		Rows rows = Select("select Type from Buildings");
+		for(size_t i = 0; i < rows.size(); ++i)
+			if(!Available(m_uniqueBuildings, ColText(rows[i], "Type"))) m_absent.insert(ColText(rows[i], "Type"));
+		rows = Select("select Type from Units");
+		for(size_t i = 0; i < rows.size(); ++i)
+			if(!Available(m_uniqueUnits, ColText(rows[i], "Type"))) m_absent.insert(ColText(rows[i], "Type"));
+		const char* const OWNED[] = {"Improvements", "Resources"};
+		for(size_t t = 0; t < MCP_REF_COUNT(OWNED); ++t)
+		{
+			rows = Select(std::string("select Type, CivilizationType from ") + OWNED[t]);
+			for(size_t i = 0; i < rows.size(); ++i)
+			{
+				const McpRefValue* civ = Col(rows[i], "CivilizationType");
+				if(Truthy(civ) && !m_civSet.count(PyStr(*civ))) m_absent.insert(ColText(rows[i], "Type"));
+			}
+		}
+		rows = Select("select Type, ImprovementType from Builds");
+		for(size_t i = 0; i < rows.size(); ++i)
+			if(m_absent.count(ColText(rows[i], "ImprovementType"))) m_absent.insert(ColText(rows[i], "Type"));
+		for(size_t c = 0; c < m_civs.size(); ++c)
+		{
+			rows = Select("select lt.TraitType from Civilization_Leaders cl join Leader_Traits lt on lt.LeaderType=cl.LeaderheadType where cl.CivilizationType=" + Quote(m_civs[c]));
+			for(size_t i = 0; i < rows.size(); ++i) m_gameTraits.insert(ColText(rows[i], "TraitType"));
+		}
+	}
+
+	// Every name another row mentions, so something the game grants (a free building, a
+	// promotion a wonder gives) is listed even though it cannot be built or chosen. A row's own
+	// name, rows about absent things and the traits of civilizations not playing do not count.
+	void Builder::FindReferenced()
+	{
+		for(size_t t = 0; t < m_tables.size(); ++t)
+		{
+			const std::string& table = m_tables[t];
+			bool bSkip = table == "BuildingClasses" || table == "UnitClasses" || table == "Unit_FreePromotions"
+				|| StartsWith(table, "Civilization_") || StartsWith(table, "UnitPromotions");
+			for(size_t i = 0; i < MCP_REF_COUNT(CHILD_SKIP) && !bSkip; ++i) bSkip = Contains(table, CHILD_SKIP[i]);
+			if(bSkip) continue;
+			bool bTraits = table == "Traits" || StartsWith(table, "Trait_");
+			Rows rows;
+			if(!m_src.Query("select * from " + table, rows)) continue;
+			for(size_t i = 0; i < rows.size(); ++i)
+			{
+				const McpRefRow& r = rows[i];
+				if(m_absent.count(ColText(r, "Type"))) continue;
+				if(bTraits && !m_gameTraits.count(ColText(r, table == "Traits" ? "Type" : "TraitType"))) continue;
+				for(size_t c = 0; c < r.size(); ++c)
+				{
+					const std::string& col = r[c].first;
+					if(r[c].second.kind != McpRefValue::TEXT || col == "Type") continue;
+					if((table == "Buildings" && col == "BuildingClass") || (table == "Units" && col == "Class")) continue;
+					if((StartsWith(table, "Building_") && col == "BuildingType") || (StartsWith(table, "Unit_") && col == "UnitType")) continue;
+					m_referenced.insert(r[c].second.s);
+				}
+			}
+		}
+	}
 
 	void Builder::Civilizations()
 	{
@@ -848,21 +997,18 @@ namespace
 			if(Available(m_uniqueUnits, ColText(r, "Type")) && (Number(Col(r, "Cost")) > 0 || Number(Col(r, "FaithCost")) > 0 || Truthy(Col(r, "Special"))))
 				m_unlocks[Key(Col(r, "PrereqTech"))].push_back(Name(ColText(r, "Type")));
 		}
-		std::map<std::string, std::string> improvementCiv;
-		rows = Select("select Type, CivilizationType from Improvements");
-		for(size_t i = 0; i < rows.size(); ++i) improvementCiv[ColText(rows[i], "Type")] = ColText(rows[i], "CivilizationType");
-		rows = Select("select Type, PrereqTech, ImprovementType from Builds where PrereqTech is not null");
+		rows = Select("select Type, PrereqTech from Builds where PrereqTech is not null");
 		for(size_t i = 0; i < rows.size(); ++i)
 		{
 			const McpRefRow& r = rows[i];
-			std::map<std::string, std::string>::const_iterator it = improvementCiv.find(ColText(r, "ImprovementType"));
-			if(it != improvementCiv.end() && !it->second.empty() && !m_civSet.count(it->second)) continue;
+			if(m_absent.count(ColText(r, "Type"))) continue;
 			std::string build = "build " + Name(ColText(r, "Type"));
 			Strings& unlocks = m_unlocks[Key(Col(r, "PrereqTech"))];
 			if(std::find(unlocks.begin(), unlocks.end(), build) == unlocks.end()) unlocks.push_back(build);
 		}
 		rows = Select("select Type, TechReveal from Resources where TechReveal is not null");
-		for(size_t i = 0; i < rows.size(); ++i) m_unlocks[Key(Col(rows[i], "TechReveal"))].push_back("reveals " + Name(ColText(rows[i], "Type")));
+		for(size_t i = 0; i < rows.size(); ++i)
+			if(!m_absent.count(ColText(rows[i], "Type"))) m_unlocks[Key(Col(rows[i], "TechReveal"))].push_back("reveals " + Name(ColText(rows[i], "Type")));
 		rows = Select("select TechType, PrereqTech from Technology_PrereqTechs");
 		for(size_t i = 0; i < rows.size(); ++i) m_needs[ColText(rows[i], "TechType")].push_back(Name(ColText(rows[i], "PrereqTech")));
 		rows = Select("select Type, Era from Technologies");
@@ -872,17 +1018,33 @@ namespace
 	void Builder::Policies()
 	{
 		m_out.push_back("\n## Policies");
+		StringSet branchPolicies; // a branch's opener and finisher; any other policy outside a branch is a mod's hidden marker
 		Rows rows = Select("select * from PolicyBranchTypes");
-		for(size_t i = 0; i < rows.size(); ++i) m_out.push_back("Branch " + Name(ColText(rows[i], "Type")) + ": " + Join(Cols(rows[i], StringSet(), "", false), "; "));
-		rows = Select("select Type, Description, Help, PolicyBranchType from Policies");
 		for(size_t i = 0; i < rows.size(); ++i)
 		{
-			std::string name, branch;
-			bool bNamed = Lookup(ColText(rows[i], "Type"), name);
+			branchPolicies.insert(ColText(rows[i], "FreePolicy"));
+			branchPolicies.insert(ColText(rows[i], "FreeFinishingPolicy"));
+			m_out.push_back("Branch " + Name(ColText(rows[i], "Type")) + ": " + Join(Cols(rows[i], StringSet(), "", false), "; "));
+		}
+		std::map<std::string, Strings> needsAll, needsAny;
+		rows = Select("select PolicyType, PrereqPolicy from Policy_PrereqPolicies");
+		for(size_t i = 0; i < rows.size(); ++i) needsAll[ColText(rows[i], "PolicyType")].push_back(Name(ColText(rows[i], "PrereqPolicy")));
+		rows = Select("select PolicyType, PrereqPolicy from Policy_PrereqORPolicies");
+		for(size_t i = 0; i < rows.size(); ++i) needsAny[ColText(rows[i], "PolicyType")].push_back(Name(ColText(rows[i], "PrereqPolicy")));
+		rows = Select("select * from Policies");
+		for(size_t i = 0; i < rows.size(); ++i)
+		{
+			std::string type = ColText(rows[i], "Type"), name, branch;
+			bool bNamed = Lookup(type, name);
 			std::string help = StripName(Text(Col(rows[i], "Help")), bNamed ? name : "");
 			if(help.empty()) continue; // a branch's finisher repeats its opener's text
 			const McpRefValue* b = Col(rows[i], "PolicyBranchType");
-			if(!(b && b->kind == McpRefValue::TEXT && Lookup(b->s, branch))) branch = "-";
+			bool bInBranch = b && b->kind == McpRefValue::TEXT && !b->s.empty();
+			if(!bInBranch && !branchPolicies.count(type)) continue;
+			if(!(bInBranch && Lookup(b->s, branch))) branch = "-";
+			if(Number(Col(rows[i], "Level")) > 0) branch += ", level " + ColText(rows[i], "Level");
+			if(!needsAll[type].empty()) branch += "; after " + Join(needsAll[type], " and ");
+			if(!needsAny[type].empty()) branch += "; after " + Join(needsAny[type], " or ");
 			m_out.push_back((bNamed ? name : "None") + " (" + branch + "): " + help);
 		}
 	}
@@ -902,29 +1064,69 @@ namespace
 
 	void Builder::Promotions()
 	{
+		StringSet relatedSkip;
+		relatedSkip.insert("UnitPromotions_UnitCombats");
+		relatedSkip.insert("UnitPromotions_PromotionPrereqOrs");
+		std::map<std::string, Strings> related = Children("UnitPromotions_", "PromotionType", relatedSkip);
 		m_out.push_back("\n## Promotions");
 		StringSet free;
 		Rows rows = Select("select PromotionType, UnitType from Unit_FreePromotions");
 		for(size_t i = 0; i < rows.size(); ++i)
 			if(Available(m_uniqueUnits, ColText(rows[i], "UnitType"))) free.insert(ColText(rows[i], "PromotionType"));
-		StringMap said; // a promotion text already written, and whose it was
+		std::map<std::string, Strings> combats, afterAny;
+		size_t allCombats = Select("select Type from UnitCombatInfos").size();
+		rows = Select("select PromotionType, UnitCombatType from UnitPromotions_UnitCombats");
+		for(size_t i = 0; i < rows.size(); ++i)
+		{
+			Strings& who = combats[ColText(rows[i], "PromotionType")];
+			std::string combat = Replace(Name(ColText(rows[i], "UnitCombatType")), " Units", "");
+			if(std::find(who.begin(), who.end(), combat) == who.end()) who.push_back(combat);
+		}
+		rows = Select("select * from UnitPromotions_PromotionPrereqOrs");
+		for(size_t i = 0; i < rows.size(); ++i)
+			if(rows[i].size() >= 2) afterAny[PyStr(rows[i][0].second)].push_back(Name(PyStr(rows[i][1].second)));
+		StringSet fieldSkip;
+		fieldSkip.insert("CannotBeChosen");
+		StringMap said; // what a promotion does, and whose it was first
 		rows = Select("select * from UnitPromotions");
 		for(size_t i = 0; i < rows.size(); ++i)
 		{
 			const McpRefRow& r = rows[i];
 			std::string type = ColText(r, "Type");
-			if(Truthy(Col(r, "CannotBeChosen")) && !free.count(type)) continue;
+			if(Truthy(Col(r, "CannotBeChosen")) && !free.count(type) && !Referenced(type)) continue;
 			Strings after;
 			for(size_t c = 0; c < r.size(); ++c)
-				if(StartsWith(r[c].first, "PromotionPrereq") && Truthy(&r[c].second)) after.push_back(Name(PyStr(r[c].second)));
+			{
+				if(!StartsWith(r[c].first, "PromotionPrereq")) continue;
+				fieldSkip.insert(r[c].first);
+				if(Truthy(&r[c].second)) after.push_back(Name(PyStr(r[c].second)));
+			}
+			after.insert(after.end(), afterAny[type].begin(), afterAny[type].end());
 			std::string name;
 			bool bNamed = Lookup(type, name);
 			if(!bNamed) name = "None";
-			std::string help = StripName(Text(Col(r, "Help")), bNamed ? name : "");
-			StringMap::const_iterator it = said.find(help);
-			if(it != said.end()) help = "same as " + it->second;
-			else if(!help.empty()) said[help] = name;
-			m_out.push_back(name + (after.empty() ? "" : " (after " + Join(after, " or ") + ")") + ": " + help);
+			std::string what = StripName(Text(Col(r, "Help")), bNamed ? name : "");
+			if(what.empty())
+			{
+				Strings fields = Cols(r, fieldSkip, "UnitPromotions", false);
+				fields.insert(fields.end(), related[type].begin(), related[type].end());
+				what = Join(fields, "; ");
+			}
+			std::string who = (allCombats > 0 && combats[type].size() >= allCombats) ? "all" : Join(combats[type], ", ");
+			std::string line = name + (who.empty() ? "" : " [" + who + "]") + (after.empty() ? "" : " (after " + Join(after, " or ") + ")") + ": ";
+			std::string key = who + "|" + what;
+			StringMap::const_iterator it = said.find(key);
+			if(it != said.end())
+			{
+				if(it->second == name) continue; // the same promotion defined twice
+				line += "same as " + it->second;
+			}
+			else
+			{
+				if(!what.empty()) said[key] = name;
+				line += what;
+			}
+			m_out.push_back(line);
 		}
 	}
 
@@ -956,9 +1158,12 @@ namespace
 		for(size_t i = 0; i < tables.size(); ++i) m_tables.push_back(ColText(tables[i], "name"));
 		m_uniqueBuildings = OwnersOf("Civilization_BuildingClassOverrides", "BuildingType");
 		m_uniqueUnits = OwnersOf("Civilization_UnitClassOverrides", "UnitType");
+		FindAbsent();
+		FindReferenced();
 
 		m_out.push_back("# Game reference");
-		m_out.push_back("The rules of this game as loaded, not its current state. Costs are standard-speed base values.");
+		m_out.push_back("The rules of this game as loaded, not its current state. Costs are standard-speed base values. "
+			"Where a description's numbers differ from the fields on its line, the fields are what the game uses.");
 		Civilizations();
 
 		TechnologyLinks();
@@ -966,18 +1171,27 @@ namespace
 		techSkip.insert("Era");
 		Section("Technologies", "Technologies", "Technology_PrereqTechs_none", "TechType", TECHS, techSkip);
 
-		Rows wonders = Select("select Type from BuildingClasses where MaxGlobalInstances > 0 or MaxPlayerInstances > 0 or MaxTeamInstances > 0");
-		for(size_t i = 0; i < wonders.size(); ++i) m_wonderClasses.insert(ColText(wonders[i], "Type"));
+		Rows classes = Select("select * from BuildingClasses");
+		for(size_t i = 0; i < classes.size(); ++i)
+		{
+			const McpRefRow& r = classes[i];
+			const char* kind = Number(Col(r, "MaxGlobalInstances")) > 0 ? "world wonder" : Number(Col(r, "MaxTeamInstances")) > 0 ? "team wonder"
+				: Number(Col(r, "MaxPlayerInstances")) > 0 ? "national wonder" : NULL;
+			if(kind) m_wonderClasses[ColText(r, "Type")] = kind;
+		}
 		Section("Buildings and wonders", "Buildings", "Building_", "BuildingType", BUILDINGS, StringSet());
 		Section("Units", "Units", "Unit_", "UnitType", UNITS, StringSet());
 		Policies();
 		Beliefs();
 		Promotions();
-		Section("Improvements", "Improvements", "Improvement_", "ImprovementType", IMPROVEMENTS, StringSet());
+		Section("Improvements", "Improvements", "Improvement_", "ImprovementType", PLAIN, StringSet());
+		Section("Worker builds", "Builds", "Build", "BuildType", BUILDS, StringSet());
 		Section("Resources", "Resources", "Resource_", "ResourceType", PLAIN, StringSet());
-		Section("Terrain", "Terrains", "Terrain_", "TerrainType", PLAIN, StringSet());
-		Section("Features and natural wonders", "Features", "Feature_", "FeatureType", PLAIN, StringSet());
-		Section("Specialists", "Specialists", "Specialist_", "SpecialistType", PLAIN, StringSet());
+		Section("Terrain", "Terrains", "Terrain_", "TerrainType", TERRAIN, StringSet());
+		Section("Features", "Features", "Feature_", "FeatureType", FEATURES, StringSet());
+		Section("Natural wonders", "Features", "Feature_", "FeatureType", NATURAL_WONDERS, StringSet());
+		Section("Specialists", "Specialists", "Specialist", "SpecialistType", PLAIN, StringSet());
+		Section("Projects", "Projects", "Project_", "ProjectType", PLAIN, StringSet());
 
 		Strings fields;
 		for(size_t i = 0; i < m_used.size(); ++i) fields.push_back(m_used[i].first + " " + Words(m_used[i].second));
