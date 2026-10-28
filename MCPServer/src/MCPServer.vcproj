@@ -95,6 +95,14 @@
 			>
 		</File>
 		<File
+			RelativePath=".\McpGameReference.cpp"
+			>
+		</File>
+		<File
+			RelativePath=".\McpGameReference.h"
+			>
+		</File>
+		<File
 			RelativePath=".\McpEspionage.cpp"
 			>
 		</File>

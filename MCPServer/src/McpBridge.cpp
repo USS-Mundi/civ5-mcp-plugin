@@ -10,6 +10,7 @@
 #include "McpPopups.h"
 #include "McpSeat.h"
 #include "McpDiplomacy.h"
+#include "McpGameReference.h"
 #include "McpLogText.h"
 #include "McpSeatPlayback.h"
 #include "McpVersion.h"
@@ -773,6 +774,20 @@ void McpBridge::RetryLater() { s_retryRequested = true; }
 // line comes before anything the call causes.
 bool McpBridge::Impl::RunJob(McpJob* pJob)
 {
+	if(pJob->tool == MCP_JOB_GAME_REFERENCE)
+	{
+		try
+		{
+			pJob->result = picojson::value(McpGameReference());
+		}
+		catch(const std::exception& e)
+		{
+			McpDiagLog(std::string("the game reference threw an exception: ") + e.what());
+			pJob->error = "the game reference could not be built";
+		}
+		return false;
+	}
+
 	const McpToolDef* pTool = McpFindTool(pJob->tool);
 	if(pTool == NULL)
 	{
@@ -879,6 +894,27 @@ void McpBridge::Impl::HandleHttp(const McpHttpRequest& req, McpHttpResponse& res
 	{
 		res.status = 403;
 		res.body = "{\"error\":\"origin not allowed\"}";
+		return;
+	}
+	if(req.path == "/game-reference")
+	{
+		// The rules of the game as loaded, as plain text for a model's system prompt.
+		res.contentType = "text/plain; charset=utf-8";
+		if(req.method != "GET")
+		{
+			res.status = 405;
+			res.body = "only GET is supported";
+			return;
+		}
+		std::string error;
+		picojson::value text = RunOnGameThread("", MCP_JOB_GAME_REFERENCE, picojson::object(), error);
+		if(!error.empty() || !text.is<std::string>())
+		{
+			res.status = 503;
+			res.body = error.empty() ? std::string("the game reference could not be built") : error;
+			return;
+		}
+		res.body = text.get<std::string>();
 		return;
 	}
 	if(req.path != "/mcp")

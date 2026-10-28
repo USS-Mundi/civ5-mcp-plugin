@@ -17,6 +17,19 @@ A DLL Bazaar Plugin for Civilization 5 that allows an LLM with MCP functionality
 
 This plugin replaces the Local MCP Server DLL mod, so turn that one off.
 
+## Giving the model the game's rules
+
+While a game is loaded, `http://127.0.0.1:7676/game-reference` returns the rules of that game as plain text: technologies, buildings, wonders, units, policies, beliefs, promotions, improvements, resources, terrain and specialists, with their costs and effects, and the abilities and unique units of the civilizations in the game. It is read from the game's own database, so mods are included. For an 8-civilization Brave New World game it is about 45,000 tokens.
+
+With it in the system prompt, the model plans from the game's numbers rather than from memory, which gets many of them wrong. Load your game first, then start Claude Code with it (PowerShell):
+
+```
+curl.exe -s http://127.0.0.1:7676/game-reference -o game-reference.txt
+claude --append-system-prompt-file game-reference.txt
+```
+
+Fetch it again for each new game, since it depends on the civilizations in it.
+
 ## Making a release
 
 Run `python tools/release.py check`, then `build`, then `publish --notes FILE`. Publishing needs the GitHub CLI, `gh`, logged in. The steps around them are in `.claude/skills/release/SKILL.md`.
