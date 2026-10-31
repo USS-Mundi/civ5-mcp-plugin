@@ -24,6 +24,7 @@
 #define MCP_MAX_CHAT_WAITING 50
 #define MCP_WAIT_DEFAULT_SECONDS 25.0
 #define MCP_WAIT_MAX_SECONDS 55.0
+#define MCP_WAIT_LONGEST_SECONDS 3600.0 // the most a client can allow with an X-Max-Wait-Seconds header
 #define MCP_MAX_LOG_ENTRIES 2000
 #define MCP_MAX_POPUPS 200                     // kept per player
 #define MCP_SESSION_IDLE_MS (2 * 60 * 1000)    // no request for this long: the model has most likely gone
@@ -1140,20 +1141,38 @@ picojson::value McpBridge::Impl::CallTool(const std::string& token, const std::s
 
 	if(pTool->waitsForTurn)
 	{
+		// Most MCP clients give up on a call after about a minute, so a wait stops short of that unless the client
+		// says, with an X-Max-Wait-Seconds header, that it waits longer. That limit is then also the default.
+		double longest = MCP_WAIT_MAX_SECONDS;
 		double timeout = MCP_WAIT_DEFAULT_SECONDS;
+		std::string allowed = McpHttpHeader("x-max-wait-seconds");
+		if(!allowed.empty() && atof(allowed.c_str()) > longest)
+		{
+			longest = atof(allowed.c_str());
+			if(longest > MCP_WAIT_LONGEST_SECONDS) longest = MCP_WAIT_LONGEST_SECONDS;
+			timeout = longest;
+		}
 		picojson::object::const_iterator it = args.find("timeout_seconds");
 		if(it != args.end() && it->second.is<double>()) timeout = it->second.get<double>();
 		if(timeout < 1.0) timeout = 1.0;
-		if(timeout > MCP_WAIT_MAX_SECONDS) timeout = MCP_WAIT_MAX_SECONDS;
+		if(timeout > longest) timeout = longest;
 
 		DWORD start = GetTickCount();
 		bool bMyTurn = false, bChatWaiting = false;
 		int iSeqAtStart = 0, iSeat = 0;
 		Flags(token, bMyTurn, iSeqAtStart, bChatWaiting, iSeat);
+		bool bClientGone = false;
 		while(!shuttingDown && !(GameRunning() && SessionWakes(token, iSeqAtStart)) && GetTickCount() - start < (DWORD)(timeout * 1000.0))
 		{
 			Sleep(250);
+			// A client that went away is no longer kept alive, so its seat frees as any idle session's does.
+			if(McpHttpClientGone()) { bClientGone = true; break; }
 			KeepAlive(token);
+		}
+		if(bClientGone)
+		{
+			bIsError = true;
+			return picojson::value("the client closed the connection while waiting");
 		}
 	}
 

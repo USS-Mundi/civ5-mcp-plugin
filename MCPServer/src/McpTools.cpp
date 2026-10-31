@@ -1157,7 +1157,7 @@ namespace
 		  "Current turn, who you are, whether it is your turn, and what blocks ending it. Cheap; call it freely.",
 		  SCHEMA_EMPTY, ToolStatus, LOG_NONE, false },
 		{ "wait_for_my_turn",
-		  "Blocks until it is your turn, a new request from another leader arrives, or your human teammate messages you (25 seconds by default; timeout_seconds sets another limit, up to 55), then returns status. Call it again if is_my_turn is still false.",
+		  "Blocks until it is your turn, a new request from another leader arrives, or your human teammate messages you (25 seconds by default; timeout_seconds sets another limit, up to 55, or up to what the client allows when it sends X-Max-Wait-Seconds), then returns status. Call it again if is_my_turn is still false.",
 		  "{\"type\":\"object\",\"properties\":{\"timeout_seconds\":{\"type\":\"number\"}}}", ToolStatus, LOG_NONE, true },
 		{ "briefing",
 		  "Start every turn with this: what happened since your last turn, game messages you must acknowledge, decisions waiting for you, nearby enemies, economy warnings, and a diplomacy snapshot. Events from last turn that a briefing for this civilization showed during that turn, even to a session before yours, are left out; since_turn shows every event from that turn on.",

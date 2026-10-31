@@ -28,6 +28,11 @@ struct McpHttpResponse
 
 typedef void (*McpHttpHandler)(const McpHttpRequest& req, McpHttpResponse& res);
 
+// Called from inside a request handler, about the request being handled: whether its client has closed the
+// connection, and one of its headers ("" when absent; give the name in lower case).
+bool McpHttpClientGone();
+std::string McpHttpHeader(const char* name);
+
 class McpHttpServer
 {
 public:

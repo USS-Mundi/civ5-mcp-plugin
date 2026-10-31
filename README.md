@@ -17,6 +17,16 @@ A DLL Bazaar Plugin for Civilization 5 that allows an LLM with MCP functionality
 
 This plugin replaces the Local MCP Server DLL mod, so turn that one off.
 
+## Waiting for a turn in one call
+
+`wait_for_my_turn` returns after 25 seconds at most (55 when asked), because MCP clients usually give up on a call after about a minute, so an agent calls it again and again while the others play. A client that can wait longer can say so with an `X-Max-Wait-Seconds` header: the wait then lasts up to that many seconds (at most 3600), returning as soon as it is the agent's turn, another leader makes a request or a teammate writes. For Claude Code:
+
+```
+claude mcp add --transport http civ5 http://127.0.0.1:7676/mcp -H "X-Max-Wait-Seconds: 3600"
+```
+
+and start Claude Code with its tool timeout above that, for example `MCP_TOOL_TIMEOUT=3900000` (milliseconds). Without the header nothing changes.
+
 ## Making a release
 
 Run `python tools/release.py check`, then `build`, then `publish --notes FILE`. Publishing needs the GitHub CLI, `gh`, logged in. The steps around them are in `.claude/skills/release/SKILL.md`.
