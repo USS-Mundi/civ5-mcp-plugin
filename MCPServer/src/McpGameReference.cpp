@@ -783,8 +783,17 @@ namespace
 					if(bOn && bDefaultOff) out.push_back(Abbr(c));
 					continue;
 				}
+				McpRefValue hundredths;
+				const McpRefValue* pv = &v;
+				if(c == "Defense" && table == "Buildings" && IsNumber(v))
+				{
+					// the game keeps a building's city defense in hundredths: the Walls' 500 is +5
+					hundredths.kind = McpRefValue::REAL;
+					hundredths.d = Number(&v) / 100.0;
+					pv = &hundredths;
+				}
 				std::string s;
-				if(!Val(v, s)) continue;
+				if(!Val(*pv, s)) continue;
 				if(compact && IsNumber(v))
 				{
 					numberAt.push_back(out.size());
