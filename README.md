@@ -30,6 +30,18 @@ claude --append-system-prompt-file game-reference.txt
 
 Fetch it again for each new game, since it depends on the civilizations in it.
 
+## Testing what a model knows
+
+`tools/agent_quiz.py` quizzes a model on the rules of Brave New World without mods and scores its answers against the game's own data: 3,625 questions on costs, prerequisites, strengths, upgrades, yields, upkeep, abilities and global rules. It needs only Python 3. Build the answer key from your own install, make a quiz, give its sheet to the model and score the reply:
+
+```
+python tools/agent_quiz.py build "C:\Program Files (x86)\Steam\steamapps\common\Sid Meier's Civilization V\Assets"
+python tools/agent_quiz.py make sample --set sampler
+python tools/agent_quiz.py score sample
+```
+
+`python tools/agent_quiz.py -h` shows how to run Claude on the sheet with no tools, with or without the game reference. The key and the quizzes stay in `tools/agent-quiz/`, which git ignores.
+
 ## Making a release
 
 Run `python tools/release.py check`, then `build`, then `publish --notes FILE`. Publishing needs the GitHub CLI, `gh`, logged in. The steps around them are in `.claude/skills/release/SKILL.md`.

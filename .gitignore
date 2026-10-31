@@ -13,6 +13,9 @@ Packages/
 
 __pycache__/
 
+# tools/agent_quiz.py's answer key and quizzes, built from the game's files
+tools/agent-quiz/
+
 # A global gitignore may skip .claude/; the release skill here is shared.
 !/.claude/
 /.claude/*
