@@ -31,9 +31,16 @@ public:
 	virtual bool Localize(const std::string& key, std::string& text) = 0;
 };
 
+// The game's settings its rules depend on, as HandicapInfos and Worlds types; empty when unknown.
+struct McpRefSettings
+{
+	std::string handicap;
+	std::string worldSize;
+};
+
 // The rules of the game as loaded, for the given civilizations (CIVILIZATION_ types),
 // written compactly for a model's system prompt.
-std::string McpBuildGameReference(McpRefSource& source, const std::vector<std::string>& civs);
+std::string McpBuildGameReference(McpRefSource& source, const std::vector<std::string>& civs, const McpRefSettings& settings);
 
 #ifndef MCP_REF_STANDALONE
 // The reference for the game being played, covering every major civilization in it. Game thread only.
